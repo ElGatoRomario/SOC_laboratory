@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "soc-ingestor"
+version = "1.0.0"
+description = "SOC Log Ingestor & Rule Manager for Elasticsearch and Kibana"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "elasticsearch>=8,<9",
+    "faker>=20.0",
+]
+
+[project.scripts]
+soc-ingestor = "soc_ingestor.app:main"
