@@ -40,6 +40,8 @@ class RulesPanel:
                    command=self._gen_rules).pack(side="left", padx=4)
         ttk.Button(gbf, text="🗑 Eliminar reglas SOC", style="Danger.TButton",
                    command=self._del_rules).pack(side="left", padx=4)
+        ttk.Button(gbf, text="🔄 Refrescar lista",
+                   command=self._refresh_tree).pack(side="left", padx=4)
 
         rlf = ttk.LabelFrame(gf, text="  Reglas en Kibana  ", padding=4)
         rlf.pack(fill="both", expand=True, pady=(6, 0))
@@ -54,16 +56,44 @@ class RulesPanel:
                            ("medium", "#f9e2af"), ("low", "#a6e3a1")]:
             self.rtree.tag_configure(sev, foreground=color)
 
+        nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+
         # ── Alerts tab ───────────────────────────────────────
         af = ttk.Frame(nb, padding=10); nb.add(af, text="  🚨 Alertas  ")
-        aspf = ttk.Frame(af); aspf.pack(fill="x", pady=(0, 8))
+
+        aspf = ttk.Frame(af); aspf.pack(fill="x", pady=(0, 4))
         ttk.Label(aspf, text="Kibana Space:").pack(side="left")
         self.sp_al = ttk.Combobox(aspf, state="readonly", width=30)
         self.sp_al.pack(side="left", padx=8)
         ttk.Button(aspf, text="🔄", command=self.load_spaces).pack(side="left", padx=2)
         ttk.Button(aspf, text="▶ Buscar alertas", style="Accent.TButton",
                    command=self._fetch_alerts).pack(side="left", padx=8)
-        self.alert_lbl = ttk.Label(af, text="", style="Sub.TLabel"); self.alert_lbl.pack(pady=4)
+
+        # Filters — use OptionMenu instead of Combobox to avoid the Windows
+        # CBS_DROPDOWNLIST focus-clearing bug when multiple dropdowns share a tab.
+        aff = ttk.Frame(af); aff.pack(fill="x", pady=(0, 6))
+        _om_kw = dict(bg="#45475a", fg="#cdd6f4", activebackground="#89b4fa",
+                      activeforeground="#1e1e2e", relief="flat", bd=0,
+                      highlightthickness=0, font=("Segoe UI", 10), width=16)
+        _mn_kw = dict(bg="#313244", fg="#cdd6f4", activebackground="#89b4fa",
+                      activeforeground="#1e1e2e", font=("Segoe UI", 10))
+
+        ttk.Label(aff, text="Estado:").pack(side="left")
+        self._al_status_var = tk.StringVar(value="Todas")
+        om_status = tk.OptionMenu(aff, self._al_status_var,
+                                  "Todas", "open", "closed", "acknowledged")
+        om_status.configure(**_om_kw); om_status["menu"].configure(**_mn_kw)
+        om_status.pack(side="left", padx=8)
+
+        ttk.Label(aff, text="Período:").pack(side="left", padx=(12, 0))
+        self._al_time_var = tk.StringVar(value="Todo")
+        om_time = tk.OptionMenu(aff, self._al_time_var,
+                                "Todo", "Última hora", "Últimas 6h", "Últimas 24h",
+                                "Últimos 7 días", "Últimos 30 días")
+        om_time.configure(**_om_kw); om_time["menu"].configure(**_mn_kw)
+        om_time.pack(side="left", padx=8)
+
+        self.alert_lbl = ttk.Label(af, text="", style="Sub.TLabel"); self.alert_lbl.pack(pady=2)
 
         ac = ("timestamp", "severity", "rule", "tactic", "host", "source_ip")
         self.atree = ttk.Treeview(af, columns=ac, show="headings", height=10)
@@ -77,6 +107,13 @@ class RulesPanel:
         for sev, color in [("critical", "#f38ba8"), ("high", "#fab387"),
                            ("medium", "#f9e2af"), ("low", "#a6e3a1")]:
             self.atree.tag_configure(sev, foreground=color)
+
+    def _on_tab_changed(self, event):
+        nb = event.widget
+        if nb.index("current") == 0 and self.kb:
+            sid = self._sel_space(self.sp_gen)
+            if sid:
+                threading.Thread(target=self._refresh_tree_bg, args=(sid,), daemon=True).start()
 
     def _root(self):
         return self.rtree.winfo_toplevel()
@@ -156,32 +193,54 @@ class RulesPanel:
             root.after(0, lambda x=str(ex)[:120]: self.log(f"❌ {x}"))
 
     def _refresh_tree(self, sid=None):
-        for i in self.rtree.get_children(): self.rtree.delete(i)
-        if not sid: sid = self._sel_space(self.sp_gen)
-        if not sid or not self.kb: return
+        if not sid:
+            sid = self._sel_space(self.sp_gen)
+        if not sid or not self.kb:
+            return
+        threading.Thread(target=self._refresh_tree_bg, args=(sid,), daemon=True).start()
+
+    def _refresh_tree_bg(self, sid):
+        root = self._root()
         try:
             res = self.kb.find_rules(sid)
+            rows = []
             for r in res.get("data", []):
                 sev = r.get("severity", "medium")
                 threat = r.get("threat", [])
                 tac = threat[0]["tactic"]["name"] if threat else ""
-                self.rtree.insert("", "end", values=(
-                    r.get("rule_id", ""), r.get("name", ""), tac, sev.upper(),
-                    "✅" if r.get("enabled") else "❌"), tags=(sev,))
+                rows.append((r.get("rule_id", ""), r.get("name", ""), tac,
+                             sev.upper(), "✅" if r.get("enabled") else "❌", sev))
+
+            def _update():
+                for i in self.rtree.get_children():
+                    self.rtree.delete(i)
+                for *vals, sev in rows:
+                    self.rtree.insert("", "end", values=vals, tags=(sev,))
+
+            root.after(0, _update)
         except Exception as ex:
-            self.log(f"  ⚠ {str(ex)[:80]}")
+            root.after(0, lambda x=str(ex)[:80]: self.log(f"  ⚠ {x}"))
+
+    _TIME_MAP = {
+        "Todo": None, "Última hora": "1h", "Últimas 6h": "6h",
+        "Últimas 24h": "24h", "Últimos 7 días": "7d", "Últimos 30 días": "30d",
+    }
 
     # ── Fetch alerts ─────────────────────────────────────────
     def _fetch_alerts(self):
         sid = self._sel_space(self.sp_al)
         if not sid: messagebox.showwarning("", "Selecciona Space."); return
-        threading.Thread(target=self._alerts_worker, args=(sid,), daemon=True).start()
+        status_val = self._al_status_var.get()
+        status = None if status_val == "Todas" else status_val
+        time_range = self._TIME_MAP.get(self._al_time_var.get())
+        threading.Thread(target=self._alerts_worker,
+                         args=(sid, status, time_range), daemon=True).start()
 
-    def _alerts_worker(self, sid):
+    def _alerts_worker(self, sid, status=None, time_range=None):
         root = self._root()
         root.after(0, lambda: self.log(f"🔍 Alertas en '{sid}'..."))
         try:
-            res = self.kb.search_alerts(sid, size=200)
+            res = self.kb.search_alerts(sid, size=200, status=status, time_range=time_range)
             hits = res.get("hits", {}).get("hits", [])
 
             def _update():

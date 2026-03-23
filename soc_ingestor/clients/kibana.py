@@ -76,8 +76,17 @@ class KibanaAPI:
             f"{self._space_prefix(space_id)}/api/detection_engine/rules?rule_id={rule_id}",
         )
 
-    def search_alerts(self, space_id: str, size=200) -> dict:
-        body = {"query": {"match_all": {}}, "size": size, "sort": [{"@timestamp": {"order": "desc"}}]}
+    def search_alerts(self, space_id: str, size=200, status=None, time_range=None) -> dict:
+        filters = []
+        if status:
+            filters.append({"bool": {"should": [
+                {"term": {"signal.status": status}},
+                {"term": {"kibana.alert.workflow_status": status}},
+            ], "minimum_should_match": 1}})
+        if time_range:
+            filters.append({"range": {"@timestamp": {"gte": f"now-{time_range}", "lte": "now"}}})
+        query = {"bool": {"filter": filters}} if filters else {"match_all": {}}
+        body = {"query": query, "size": size, "sort": [{"@timestamp": {"order": "desc"}}]}
         return self._request(
             "POST",
             f"{self._space_prefix(space_id)}/api/detection_engine/signals/search",

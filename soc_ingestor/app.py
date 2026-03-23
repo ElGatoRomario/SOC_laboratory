@@ -3,6 +3,7 @@
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 from datetime import datetime
+import threading
 
 from .config import load_config, save_config, LOG_CATEGORIES, get_index, is_data_stream
 from .clients.elastic import create_client
@@ -92,19 +93,11 @@ class SOCIngestorApp:
         self.status = ttk.Label(top, text="", style="Sub.TLabel")
         self.status.pack(side="right", padx=12)
 
-        # Connect ES
+        # Connect ES (client creation only — probe runs in background)
         if not self.es:
             try:
                 self.es = create_client(self.cfg)
-                v = self.es.info()["version"]["number"]
-                self.status.configure(text=f"ES {v}", foreground="#a6e3a1")
-            except:
-                self.status.configure(text="Sin ES", foreground="#f38ba8")
-        else:
-            try:
-                v = self.es.info()["version"]["number"]
-                self.status.configure(text=f"ES {v}", foreground="#a6e3a1")
-            except:
+            except Exception:
                 pass
 
         if not self.kb and self.cfg.get("kb_url"):
@@ -142,9 +135,23 @@ class SOCIngestorApp:
             m = "DS" if is_data_stream(self.cfg, cat) else "idx"
             self._log(f"  {LOG_CATEGORIES[cat]['label']} → {get_index(self.cfg, cat)} ({m})")
 
-        # Load spaces
+        threading.Thread(target=self._connect_bg, daemon=True).start()
+
+    def _connect_bg(self):
+        """Background thread: probe ES/Kibana without blocking the UI."""
+        if self.es:
+            try:
+                v = self.es.info()["version"]["number"]
+                self.root.after(0, lambda: self.status.configure(
+                    text=f"ES {v}", foreground="#a6e3a1"))
+            except Exception:
+                self.root.after(0, lambda: self.status.configure(
+                    text="Sin ES", foreground="#f38ba8"))
+        else:
+            self.root.after(0, lambda: self.status.configure(
+                text="Sin ES", foreground="#f38ba8"))
         if self.kb:
-            self.rules.load_spaces()
+            self.root.after(0, self.rules.load_spaces)
 
     def _log(self, msg):
         ts = datetime.now().strftime("%H:%M:%S")
