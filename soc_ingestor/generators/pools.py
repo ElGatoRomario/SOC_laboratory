@@ -219,7 +219,13 @@ USER_AGENTS = [
 
 # ── Suspicious file paths ───────────────────────────────────
 SUSPICIOUS_PATHS = [
-    "C:\\Temp\\", "C:\\Users\\Public\\", "C:\\Windows\\Temp\\",
-    "C:\\ProgramData\\",
-    "/tmp/", "/var/tmp/", "/dev/shm/", "/home/.hidden/", "/opt/.cache/",
+    r"C:\Temp" + "\\",
+    r"C:\Users\Public" + "\\",
+    r"C:\Windows\Temp" + "\\",
+    r"C:\ProgramData" + "\\",
+    "/tmp/",
+    "/var/tmp/",
+    "/dev/shm/",
+    "/home/.hidden/",
+    "/opt/.cache/",
 ]
